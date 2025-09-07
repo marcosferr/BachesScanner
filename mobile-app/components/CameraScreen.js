@@ -11,7 +11,6 @@ import {
 } from "react-native";
 import { Camera } from "expo-camera";
 import * as Location from "expo-location";
-import * as MediaLibrary from "expo-media-library";
 import { Button, Card, Title, Paragraph, Switch } from "react-native-paper";
 import ApiService from "../utils/ApiService";
 
@@ -55,9 +54,6 @@ const CameraScreen = () => {
     // Location permission
     const locationStatus = await Location.requestForegroundPermissionsAsync();
     setHasLocationPermission(locationStatus.status === "granted");
-
-    // Media library permission
-    await MediaLibrary.requestPermissionsAsync();
 
     setHasPermission(
       cameraStatus.status === "granted" && locationStatus.status === "granted"
