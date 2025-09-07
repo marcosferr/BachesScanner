@@ -1,0 +1,40 @@
+# General
+*.pyc
+*.pyo
+*.pyd
+__pycache__/
+*.swp
+*.swo
+.env
+*.env
+
+# Flask
+instance/
+*.sqlite3
+*.db
+*.log
+
+# React Native / Expo
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.expo/
+.expo-shared/
+*.expo
+*.expo-shared
+*.tmp
+*.temp
+*.log
+*.lock
+*.idea/
+*.vscode/
+*.DS_Store
+*.android/
+*.ios/
+*.expo/
+*.expo-shared/
+web-build/
+dist/
+build/
+venv/
