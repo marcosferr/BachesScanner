@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { View, StyleSheet, ScrollView, Alert } from "react-native";
+import { View, StyleSheet, ScrollView, Alert, Text } from "react-native";
 import {
   Card,
   Title,
@@ -96,10 +96,13 @@ const SettingsScreen = () => {
   };
 
   return (
-    <ScrollView style={styles.container}>
+    <ScrollView
+      className="flex-1 bg-gray-50 px-4 pt-4"
+      style={styles.container}
+    >
       <Card style={styles.card}>
         <Card.Content>
-          <Title>Server Configuration</Title>
+          <Title style={{ marginBottom: 4 }}>Server Configuration</Title>
 
           <TextInput
             label="Server URL"
@@ -110,8 +113,8 @@ const SettingsScreen = () => {
             placeholder="http://192.168.100.4:5000"
           />
 
-          <View style={styles.statusContainer}>
-            <Paragraph>Status: </Paragraph>
+          <View className="flex-row items-center mt-2 mb-2">
+            <Paragraph className="mr-1">Status:</Paragraph>
             <Paragraph style={[styles.status, { color: getStatusColor() }]}>
               {testing ? "Testing..." : serverStatus || "Unknown"}
             </Paragraph>
@@ -171,8 +174,8 @@ const SettingsScreen = () => {
         <Card.Content>
           <Title>App Behavior</Title>
 
-          <View style={styles.switchContainer}>
-            <View style={styles.switchLabel}>
+          <View className="flex-row items-center justify-between py-2">
+            <View className="flex-1 mr-4">
               <Paragraph>Auto-upload to server</Paragraph>
               <Paragraph style={styles.helper}>
                 Automatically send detection results to server
@@ -183,8 +186,8 @@ const SettingsScreen = () => {
 
           <Divider style={styles.divider} />
 
-          <View style={styles.switchContainer}>
-            <View style={styles.switchLabel}>
+          <View className="flex-row items-center justify-between py-2">
+            <View className="flex-1 mr-4">
               <Paragraph>Save photos to gallery</Paragraph>
               <Paragraph style={styles.helper}>
                 Save captured photos to device gallery
@@ -204,7 +207,7 @@ const SettingsScreen = () => {
         </Card.Content>
       </Card>
 
-      <View style={styles.buttonContainer}>
+      <View className="mt-4 mb-10">
         <Button mode="outlined" onPress={resetSettings} style={styles.button}>
           Reset to Default
         </Button>
@@ -214,11 +217,7 @@ const SettingsScreen = () => {
 };
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#f5f5f5",
-    padding: 16,
-  },
+  container: {},
   card: {
     marginBottom: 16,
     elevation: 4,

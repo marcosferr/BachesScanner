@@ -5,6 +5,7 @@ import {
   FlatList,
   RefreshControl,
   Alert,
+  Text,
 } from "react-native";
 import {
   Card,
@@ -134,60 +135,64 @@ const HistoryScreen = () => {
     );
   };
 
-  if (loading) {
-    return (
-      <View style={styles.centerContainer}>
-        <ActivityIndicator size="large" />
-        <Paragraph>Loading detection history...</Paragraph>
-      </View>
-    );
-  }
+  const content = (
+    <FlatList
+      data={detections}
+      renderItem={renderDetectionItem}
+      keyExtractor={(item) => item.id.toString()}
+      ListHeaderComponent={renderStats}
+      refreshControl={
+        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+      }
+      contentContainerStyle={styles.listContainer}
+      ListEmptyComponent={() => (
+        <View className="items-center justify-center py-20">
+          <Text className="text-gray-600 mb-4">No detections found</Text>
+          <Button mode="outlined" onPress={onRefresh}>
+            Refresh
+          </Button>
+        </View>
+      )}
+    />
+  );
 
   return (
-    <View style={styles.container}>
-      <FlatList
-        data={detections}
-        renderItem={renderDetectionItem}
-        keyExtractor={(item) => item.id.toString()}
-        ListHeaderComponent={renderStats}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-        }
-        contentContainerStyle={styles.listContainer}
-        ListEmptyComponent={() => (
-          <View style={styles.emptyContainer}>
-            <Paragraph>No detections found</Paragraph>
-            <Button mode="outlined" onPress={onRefresh}>
-              Refresh
-            </Button>
-          </View>
-        )}
-      />
+    <View className="flex-1 bg-gray-50">
+      {loading ? (
+        <View className="flex-1 items-center justify-center">
+          <ActivityIndicator size="large" />
+          <Text className="text-gray-600 mt-3">
+            Loading detection history...
+          </Text>
+        </View>
+      ) : (
+        content
+      )}
     </View>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#f5f5f5",
-  },
   centerContainer: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
   },
   listContainer: {
-    padding: 16,
+    padding: 20,
+    paddingTop: 12,
   },
   card: {
     marginBottom: 16,
     elevation: 4,
+    borderRadius: 18,
+    overflow: "hidden",
   },
   statsCard: {
     marginBottom: 20,
     elevation: 4,
     backgroundColor: "#e3f2fd",
+    borderRadius: 20,
   },
   damageContainer: {
     marginTop: 8,

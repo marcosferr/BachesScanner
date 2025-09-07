@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import {
   View,
-  StyleSheet,
   TouchableOpacity,
   Alert,
   Image,
@@ -282,12 +281,12 @@ const CameraScreen = () => {
   }
 
   return (
-    <View style={styles.container}>
+    <View className="flex-1 bg-black">
       {/* Camera View */}
-      <View style={styles.cameraContainer}>
+      <View className="flex-1 relative">
         <Camera
           key={cameraKey}
-          style={styles.camera}
+          style={{ flex: 1 }}
           type={type}
           ref={cameraRef}
           autoFocus={Camera.Constants.AutoFocus.on}
@@ -300,10 +299,20 @@ const CameraScreen = () => {
             Alert.alert("Camera Error", "Failed to initialize camera");
           }}
         >
-          {/* Camera Controls */}
-          <View style={styles.topControls}>
+          {/* Top overlay controls */}
+          <View className="absolute top-10 left-0 right-0 px-5 flex-row justify-between items-center z-10">
+            <View
+              className={`px-3 py-1 rounded-full ${
+                serverConnected ? "bg-green-600/80" : "bg-red-600/80"
+              }`}
+            >
+              <Text className="text-white text-xs font-semibold">
+                {serverConnected ? "Server Connected" : "Server Offline"}
+              </Text>
+            </View>
+
             <TouchableOpacity
-              style={styles.flipButton}
+              className="bg-black/60 px-4 py-2 rounded-full"
               onPress={() => {
                 setType(
                   type === Camera.Constants.Type.back
@@ -312,40 +321,33 @@ const CameraScreen = () => {
                 );
               }}
             >
-              <Text style={styles.buttonText}>Flip</Text>
+              <Text className="text-white font-semibold text-sm">Flip</Text>
             </TouchableOpacity>
           </View>
 
           {/* Inference Result Overlay */}
           {lastInferenceResult && (
-            <View style={styles.resultOverlay}>
+            <View className="absolute inset-0 bg-black/30">
               <Image
                 source={{ uri: lastInferenceResult.annotated_image_base64 }}
-                style={styles.overlayImage}
+                style={{ width: "100%", height: "100%" }}
                 resizeMode="contain"
               />
             </View>
           )}
         </Camera>
-
-        {/* Server Status Indicator */}
-        <View
-          style={[
-            styles.statusIndicator,
-            { backgroundColor: serverConnected ? "#4caf50" : "#f44336" },
-          ]}
-        >
-          <Text style={styles.statusText}>
-            {serverConnected ? "Server Connected" : "Server Disconnected"}
-          </Text>
-        </View>
       </View>
 
       {/* Controls Panel */}
-      <View style={styles.controlsPanel}>
+      <View className="bg-white rounded-t-3xl px-5 pt-4 pb-6 shadow-xl">
+        {/* Drag handle */}
+        <View className="w-12 h-1.5 bg-gray-300 self-center rounded-full mb-4" />
+
         {/* Real-time Mode Toggle */}
-        <View style={styles.switchContainer}>
-          <Text style={styles.switchLabel}>Real-time Detection</Text>
+        <View className="flex-row items-center justify-between mb-4">
+          <Text className="text-base font-semibold text-gray-800">
+            Real-time Detection
+          </Text>
           <Switch
             value={isRealTimeMode}
             onValueChange={setIsRealTimeMode}
@@ -355,54 +357,57 @@ const CameraScreen = () => {
 
         {/* Detection Info */}
         {lastInferenceResult && (
-          <Card style={styles.detectionCard}>
-            <Card.Content>
-              <Title>Latest Detection</Title>
-              <Paragraph>
-                Found: {lastInferenceResult.detection_count} damage(s)
-              </Paragraph>
-              {lastInferenceResult.detections.map((detection, index) => (
-                <Paragraph key={index} style={styles.detectionItem}>
-                  • {detection.class}: {(detection.confidence * 100).toFixed(1)}
-                  %
-                </Paragraph>
-              ))}
-              <Paragraph style={styles.timestamp}>
-                {new Date(lastInferenceResult.timestamp).toLocaleTimeString()}
-              </Paragraph>
-            </Card.Content>
-          </Card>
+          <View className="bg-green-50 border border-green-200 rounded-2xl p-4 mb-4">
+            <Text className="text-lg font-semibold text-green-700 mb-1">
+              Latest Detection
+            </Text>
+            <Text className="text-green-800 mb-2">
+              Found: {lastInferenceResult.detection_count} damage(s)
+            </Text>
+            {lastInferenceResult.detections.map((detection, index) => (
+              <Text key={index} className="text-sm text-green-700 mb-0.5">
+                • {detection.class}: {(detection.confidence * 100).toFixed(1)}%
+              </Text>
+            ))}
+            <Text className="text-[11px] text-green-600 italic mt-2">
+              {new Date(lastInferenceResult.timestamp).toLocaleTimeString()}
+            </Text>
+          </View>
         )}
 
         {/* Action Buttons */}
-        <View style={styles.buttonContainer}>
+        <View className="flex-row flex-wrap justify-between gap-y-3">
           <TouchableOpacity
-            style={[
-              styles.captureButton,
-              isProcessing && styles.disabledButton,
-            ]}
+            className={`flex-1 mr-2 rounded-full py-3 items-center ${
+              isProcessing || !serverConnected || isRealTimeMode
+                ? "bg-blue-300"
+                : "bg-blue-600"
+            }`}
             onPress={() => captureAndInfer(false)}
             disabled={isProcessing || !serverConnected || isRealTimeMode}
           >
             {isProcessing ? (
               <ActivityIndicator size="small" color="#fff" />
             ) : (
-              <Text style={styles.captureButtonText}>Detect</Text>
+              <Text className="text-white font-semibold text-base">Detect</Text>
             )}
           </TouchableOpacity>
 
-          {lastInferenceResult && lastInferenceResult.detections.length > 0 && (
+          {lastInferenceResult?.detections?.length > 0 && (
             <TouchableOpacity
-              style={styles.saveButton}
+              className="flex-1 ml-2 rounded-full py-3 items-center bg-green-600"
               onPress={saveCurrentResult}
             >
-              <Text style={styles.saveButtonText}>Save Result</Text>
+              <Text className="text-white font-semibold text-base">Save</Text>
             </TouchableOpacity>
           )}
 
           {lastInferenceResult && (
-            <TouchableOpacity style={styles.clearButton} onPress={clearResults}>
-              <Text style={styles.clearButtonText}>Clear</Text>
+            <TouchableOpacity
+              className="w-full mt-3 rounded-full py-3 items-center bg-orange-500"
+              onPress={clearResults}
+            >
+              <Text className="text-white font-semibold text-base">Clear</Text>
             </TouchableOpacity>
           )}
         </View>
@@ -410,152 +415,5 @@ const CameraScreen = () => {
     </View>
   );
 };
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#000",
-  },
-  centerContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "#f5f5f5",
-  },
-  errorText: {
-    color: "#f44336",
-    fontSize: 16,
-    textAlign: "center",
-    marginBottom: 20,
-  },
-  cameraContainer: {
-    flex: 1,
-    position: "relative",
-  },
-  camera: {
-    flex: 1,
-  },
-  topControls: {
-    position: "absolute",
-    top: 40,
-    right: 20,
-    zIndex: 1,
-  },
-  flipButton: {
-    backgroundColor: "rgba(0,0,0,0.7)",
-    padding: 12,
-    borderRadius: 25,
-  },
-  buttonText: {
-    color: "white",
-    fontSize: 14,
-    fontWeight: "bold",
-  },
-  resultOverlay: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: "rgba(0,0,0,0.3)",
-  },
-  overlayImage: {
-    width: "100%",
-    height: "100%",
-  },
-  statusIndicator: {
-    position: "absolute",
-    top: 40,
-    left: 20,
-    padding: 8,
-    borderRadius: 15,
-    zIndex: 1,
-  },
-  statusText: {
-    color: "white",
-    fontSize: 12,
-    fontWeight: "bold",
-  },
-  controlsPanel: {
-    backgroundColor: "#fff",
-    paddingHorizontal: 20,
-    paddingVertical: 15,
-    maxHeight: screenHeight * 0.4,
-  },
-  switchContainer: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 15,
-  },
-  switchLabel: {
-    fontSize: 16,
-    fontWeight: "bold",
-  },
-  detectionCard: {
-    marginBottom: 15,
-    backgroundColor: "#e8f5e8",
-  },
-  detectionItem: {
-    fontSize: 14,
-    marginVertical: 2,
-  },
-  timestamp: {
-    fontSize: 12,
-    color: "#666",
-    fontStyle: "italic",
-    marginTop: 5,
-  },
-  buttonContainer: {
-    flexDirection: "row",
-    justifyContent: "space-around",
-    flexWrap: "wrap",
-  },
-  captureButton: {
-    backgroundColor: "#2196f3",
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 25,
-    minWidth: 100,
-    alignItems: "center",
-    marginBottom: 10,
-  },
-  disabledButton: {
-    backgroundColor: "#999",
-  },
-  captureButtonText: {
-    color: "white",
-    fontSize: 16,
-    fontWeight: "bold",
-  },
-  saveButton: {
-    backgroundColor: "#4caf50",
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 25,
-    minWidth: 100,
-    alignItems: "center",
-    marginBottom: 10,
-  },
-  saveButtonText: {
-    color: "white",
-    fontSize: 16,
-    fontWeight: "bold",
-  },
-  clearButton: {
-    backgroundColor: "#ff9800",
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 25,
-    minWidth: 100,
-    alignItems: "center",
-    marginBottom: 10,
-  },
-  clearButtonText: {
-    color: "white",
-    fontSize: 16,
-    fontWeight: "bold",
-  },
-});
 
 export default CameraScreen;
