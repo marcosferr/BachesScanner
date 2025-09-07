@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template, send_file
 from flask_cors import CORS
 import sqlite3
 import base64
@@ -367,6 +367,144 @@ def home():
             "timestamp": datetime.now().isoformat(),
         }
     )
+
+
+@app.route("/dashboard")
+def dashboard():
+    """Web dashboard to view all detections."""
+    try:
+        conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+
+        # Get all detections
+        cursor.execute(
+            """
+            SELECT id, timestamp, latitude, longitude, image_path, detected_damages, confidence_scores
+            FROM detections
+            ORDER BY timestamp DESC
+        """
+        )
+
+        rows = cursor.fetchall()
+
+        detections = []
+        damage_type_distribution = {}
+
+        for row in rows:
+            (
+                detection_id,
+                timestamp,
+                latitude,
+                longitude,
+                image_path,
+                detected_damages_json,
+                confidence_scores_json,
+            ) = row
+
+            # Parse JSON data
+            try:
+                detected_damages = (
+                    json.loads(detected_damages_json) if detected_damages_json else []
+                )
+                confidence_scores = (
+                    json.loads(confidence_scores_json) if confidence_scores_json else []
+                )
+            except:
+                detected_damages = []
+                confidence_scores = []
+
+            # Don't read image as base64 here - we'll use the API endpoint
+            image_url = f"/api/image/{detection_id}"
+
+            # Process damages for display
+            damage_list = []
+            damage_types = []
+
+            for damage_obj in detected_damages:
+                if isinstance(damage_obj, dict):
+                    # New format: dict with class, confidence, bbox
+                    damage_class = damage_obj.get("class", "Unknown")
+                    confidence = damage_obj.get("confidence", 0.5)
+                else:
+                    # Legacy format: just the class name as string
+                    damage_class = damage_obj
+                    confidence = 0.5
+
+                damage_list.append({"class": damage_class, "confidence": confidence})
+                if damage_class not in damage_types:
+                    damage_types.append(damage_class)
+
+                # Update distribution
+                damage_type_distribution[damage_class] = (
+                    damage_type_distribution.get(damage_class, 0) + 1
+                )
+
+            detections.append(
+                {
+                    "id": detection_id,
+                    "timestamp": datetime.fromisoformat(timestamp).strftime(
+                        "%Y-%m-%d %H:%M:%S"
+                    ),
+                    "date": datetime.fromisoformat(timestamp).strftime("%Y-%m-%d"),
+                    "latitude": latitude,
+                    "longitude": longitude,
+                    "image_url": image_url,
+                    "detected_damages": damage_list,
+                    "damage_types": damage_types,
+                }
+            )
+
+        # Get statistics
+        total_detections = len(detections)
+
+        stats = {
+            "total_detections": total_detections,
+            "damage_type_distribution": damage_type_distribution,
+        }
+
+        conn.close()
+
+        return render_template("detections.html", detections=detections, stats=stats)
+
+    except Exception as e:
+        print(f"Error in dashboard: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/image/<int:detection_id>")
+def get_detection_image(detection_id):
+    """Serve detection image by ID."""
+    try:
+        conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+
+        cursor.execute(
+            "SELECT image_path FROM detections WHERE id = ?", (detection_id,)
+        )
+        result = cursor.fetchone()
+        conn.close()
+
+        if result and result[0]:
+            image_path = result[0]
+
+            # Check if file exists
+            if os.path.exists(image_path):
+                from flask import send_file
+
+                return send_file(
+                    image_path,
+                    mimetype="image/jpeg",
+                    as_attachment=False,
+                    download_name=f"detection_{detection_id}.jpg",
+                )
+            else:
+                return jsonify({"error": "Image file not found"}), 404
+        else:
+            return jsonify({"error": "Detection not found"}), 404
+
+    except Exception as e:
+        print(f"Error serving image: {str(e)}")
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/api/detect", methods=["POST"])

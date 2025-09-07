@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import {
   View,
+  StyleSheet,
   TouchableOpacity,
   Alert,
   Image,
@@ -10,6 +11,7 @@ import {
 } from "react-native";
 import { Camera } from "expo-camera";
 import * as Location from "expo-location";
+import * as FileSystem from "expo-file-system";
 import { Button, Card, Title, Paragraph, Switch } from "react-native-paper";
 import { useFocusEffect } from "@react-navigation/native";
 import ApiService from "../utils/ApiService";
@@ -36,6 +38,7 @@ const CameraScreen = () => {
   // Handle camera focus when screen comes into view
   useFocusEffect(
     React.useCallback(() => {
+      console.log("CameraScreen focused");
       // Reset camera when screen is focused
       const resetCamera = async () => {
         if (hasCameraPermission) {
@@ -46,8 +49,10 @@ const CameraScreen = () => {
       resetCamera();
 
       return () => {
+        console.log("CameraScreen unfocused - stopping real-time inference");
         // Stop real-time inference when leaving the screen
         stopRealTimeInference();
+        setIsRealTimeMode(false); // Also turn off the mode
       };
     }, [hasCameraPermission])
   );
@@ -55,6 +60,12 @@ const CameraScreen = () => {
   useEffect(() => {
     requestPermissions();
     checkServerConnection();
+
+    // Cleanup function when component unmounts
+    return () => {
+      console.log("CameraScreen component unmounting - cleanup");
+      stopRealTimeInference();
+    };
   }, []);
 
   useEffect(() => {
@@ -133,17 +144,46 @@ const CameraScreen = () => {
             console.log(
               `captureAndInfer: Attempt ${attempt + 1} to take picture`
             );
-            const photo = await Promise.race([
+
+            // First try with base64 directly
+            let photo = await Promise.race([
               cameraRef.current.takePictureAsync({
-                quality: 0.6, // slightly lower for speed
+                quality: 0.7,
                 base64: true,
-                skipProcessing: true, // faster & avoids some Android stalls
-                fastMode: true,
+                skipProcessing: false, // Try with processing enabled
+                exif: false, // Disable exif to reduce size
               }),
-              new Promise((_, reject) =>
-                setTimeout(() => reject(new Error("capture-timeout")), 7000)
+              new Promise(
+                (_, reject) =>
+                  setTimeout(() => reject(new Error("capture-timeout")), 10000) // Increase timeout
               ),
             ]);
+
+            // If base64 is missing, try alternative approach
+            if (!photo.base64 && photo.uri) {
+              console.log("Base64 missing, trying to convert URI to base64...");
+
+              // Try taking another photo without base64 and then convert
+              const photoWithoutBase64 =
+                await cameraRef.current.takePictureAsync({
+                  quality: 0.7,
+                  base64: false,
+                });
+
+              // Use FileSystem to read as base64
+              const base64 = await FileSystem.readAsStringAsync(
+                photoWithoutBase64.uri,
+                {
+                  encoding: FileSystem.EncodingType.Base64,
+                }
+              );
+
+              photo = {
+                ...photoWithoutBase64,
+                base64: base64,
+              };
+            }
+
             return photo;
           } catch (err) {
             console.warn(
@@ -159,9 +199,24 @@ const CameraScreen = () => {
       // Take picture
       const photo = await takePhotoWithRetry();
 
+      // Debug: Log the photo object structure
+      console.log("Photo object:", {
+        uri: photo?.uri ? "present" : "missing",
+        base64: photo?.base64
+          ? `present (${photo.base64.length} chars)`
+          : "missing/null",
+        width: photo?.width,
+        height: photo?.height,
+      });
+
       // Validate that we have a base64 image
-      if (!photo.base64) {
-        throw new Error("Failed to capture image as base64");
+      if (!photo || !photo.base64) {
+        console.error("Photo capture failed - no base64 data:", photo);
+        throw new Error(
+          `Failed to capture image as base64. Photo object: ${JSON.stringify(
+            photo
+          )}`
+        );
       }
 
       console.log("Captured photo - base64 length:", photo.base64.length);
@@ -241,14 +296,26 @@ const CameraScreen = () => {
     }
 
     try {
+      // Get current location before saving
+      let currentLocation = location;
+      if (hasLocationPermission) {
+        try {
+          currentLocation = await getCurrentLocation();
+        } catch (error) {
+          console.warn(
+            "Could not get current location for saving, using last known location"
+          );
+        }
+      }
+
       // Extract base64 from the annotated image
       const base64Image =
         lastInferenceResult.annotated_image_base64.split(",")[1];
 
       const result = await ApiService.sendDetectionResult(
         base64Image,
-        location?.latitude || 0,
-        location?.longitude || 0,
+        currentLocation?.latitude || 0,
+        currentLocation?.longitude || 0,
         lastInferenceResult.detections
       );
 
@@ -281,12 +348,12 @@ const CameraScreen = () => {
   }
 
   return (
-    <View className="flex-1 bg-black">
+    <View style={styles.container}>
       {/* Camera View */}
-      <View className="flex-1 relative">
+      <View style={styles.cameraContainer}>
         <Camera
           key={cameraKey}
-          style={{ flex: 1 }}
+          style={styles.camera}
           type={type}
           ref={cameraRef}
           autoFocus={Camera.Constants.AutoFocus.on}
@@ -300,19 +367,36 @@ const CameraScreen = () => {
           }}
         >
           {/* Top overlay controls */}
-          <View className="absolute top-10 left-0 right-0 px-5 flex-row justify-between items-center z-10">
-            <View
-              className={`px-3 py-1 rounded-full ${
-                serverConnected ? "bg-green-600/80" : "bg-red-600/80"
-              }`}
-            >
-              <Text className="text-white text-xs font-semibold">
-                {serverConnected ? "Server Connected" : "Server Offline"}
-              </Text>
+          <View style={styles.topControls}>
+            <View style={styles.statusContainer}>
+              <View
+                style={[
+                  styles.statusPill,
+                  { backgroundColor: serverConnected ? "#059669" : "#dc2626" },
+                ]}
+              >
+                <Text style={styles.statusText}>
+                  {serverConnected ? "Server Connected" : "Server Offline"}
+                </Text>
+              </View>
+
+              <View
+                style={[
+                  styles.statusPill,
+                  {
+                    backgroundColor: location ? "#059669" : "#dc2626",
+                    marginTop: 4,
+                  },
+                ]}
+              >
+                <Text style={styles.statusText}>
+                  {location ? "📍 GPS Active" : "📍 GPS Unavailable"}
+                </Text>
+              </View>
             </View>
 
             <TouchableOpacity
-              className="bg-black/60 px-4 py-2 rounded-full"
+              style={styles.flipButton}
               onPress={() => {
                 setType(
                   type === Camera.Constants.Type.back
@@ -321,16 +405,16 @@ const CameraScreen = () => {
                 );
               }}
             >
-              <Text className="text-white font-semibold text-sm">Flip</Text>
+              <Text style={styles.flipButtonText}>Flip</Text>
             </TouchableOpacity>
           </View>
 
           {/* Inference Result Overlay */}
           {lastInferenceResult && (
-            <View className="absolute inset-0 bg-black/30">
+            <View style={styles.resultOverlay}>
               <Image
                 source={{ uri: lastInferenceResult.annotated_image_base64 }}
-                style={{ width: "100%", height: "100%" }}
+                style={styles.overlayImage}
                 resizeMode="contain"
               />
             </View>
@@ -339,15 +423,13 @@ const CameraScreen = () => {
       </View>
 
       {/* Controls Panel */}
-      <View className="bg-white rounded-t-3xl px-5 pt-4 pb-6 shadow-xl">
+      <View style={styles.controlsPanel}>
         {/* Drag handle */}
-        <View className="w-12 h-1.5 bg-gray-300 self-center rounded-full mb-4" />
+        <View style={styles.dragHandle} />
 
         {/* Real-time Mode Toggle */}
-        <View className="flex-row items-center justify-between mb-4">
-          <Text className="text-base font-semibold text-gray-800">
-            Real-time Detection
-          </Text>
+        <View style={styles.switchContainer}>
+          <Text style={styles.switchLabel}>Real-time Detection</Text>
           <Switch
             value={isRealTimeMode}
             onValueChange={setIsRealTimeMode}
@@ -355,59 +437,77 @@ const CameraScreen = () => {
           />
         </View>
 
+        {/* Current Location Display */}
+        {location && (
+          <View style={styles.locationCard}>
+            <Text style={styles.locationCardTitle}>📍 Current Location</Text>
+            <Text style={styles.locationCardText}>
+              {location.latitude.toFixed(6)}, {location.longitude.toFixed(6)}
+            </Text>
+          </View>
+        )}
+
         {/* Detection Info */}
         {lastInferenceResult && (
-          <View className="bg-green-50 border border-green-200 rounded-2xl p-4 mb-4">
-            <Text className="text-lg font-semibold text-green-700 mb-1">
-              Latest Detection
-            </Text>
-            <Text className="text-green-800 mb-2">
+          <View style={styles.detectionCard}>
+            <Text style={styles.detectionTitle}>Latest Detection</Text>
+            <Text style={styles.detectionCount}>
               Found: {lastInferenceResult.detection_count} damage(s)
             </Text>
             {lastInferenceResult.detections.map((detection, index) => (
-              <Text key={index} className="text-sm text-green-700 mb-0.5">
+              <Text key={index} style={styles.detectionItem}>
                 • {detection.class}: {(detection.confidence * 100).toFixed(1)}%
               </Text>
             ))}
-            <Text className="text-[11px] text-green-600 italic mt-2">
+            {lastInferenceResult.location && (
+              <Text style={styles.locationInfo}>
+                📍 {lastInferenceResult.location.latitude.toFixed(6)},{" "}
+                {lastInferenceResult.location.longitude.toFixed(6)}
+              </Text>
+            )}
+            <Text style={styles.timestamp}>
               {new Date(lastInferenceResult.timestamp).toLocaleTimeString()}
             </Text>
           </View>
         )}
 
         {/* Action Buttons */}
-        <View className="flex-row flex-wrap justify-between gap-y-3">
+        <View style={styles.buttonContainer}>
           <TouchableOpacity
-            className={`flex-1 mr-2 rounded-full py-3 items-center ${
-              isProcessing || !serverConnected || isRealTimeMode
-                ? "bg-blue-300"
-                : "bg-blue-600"
-            }`}
+            style={[
+              styles.detectButton,
+              {
+                backgroundColor:
+                  isProcessing || !serverConnected || isRealTimeMode
+                    ? "#93c5fd"
+                    : "#2563eb",
+              },
+            ]}
             onPress={() => captureAndInfer(false)}
             disabled={isProcessing || !serverConnected || isRealTimeMode}
           >
             {isProcessing ? (
               <ActivityIndicator size="small" color="#fff" />
             ) : (
-              <Text className="text-white font-semibold text-base">Detect</Text>
+              <Text style={styles.buttonText}>Detect</Text>
             )}
           </TouchableOpacity>
 
           {lastInferenceResult?.detections?.length > 0 && (
             <TouchableOpacity
-              className="flex-1 ml-2 rounded-full py-3 items-center bg-green-600"
+              style={[styles.detectButton, styles.saveButton]}
               onPress={saveCurrentResult}
             >
-              <Text className="text-white font-semibold text-base">Save</Text>
+              <Text style={styles.buttonText}>Save</Text>
             </TouchableOpacity>
           )}
 
           {lastInferenceResult && (
             <TouchableOpacity
-              className="w-full mt-3 rounded-full py-3 items-center bg-orange-500"
+              style={[styles.detectButton, styles.clearButton]}
               onPress={clearResults}
             >
-              <Text className="text-white font-semibold text-base">Clear</Text>
+              <Text style={styles.buttonText}>Clear</Text>
             </TouchableOpacity>
           )}
         </View>
@@ -415,5 +515,194 @@ const CameraScreen = () => {
     </View>
   );
 };
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: "#000",
+  },
+  centerContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#f5f5f5",
+  },
+  errorText: {
+    color: "#f44336",
+    fontSize: 16,
+    textAlign: "center",
+    marginBottom: 20,
+  },
+  cameraContainer: {
+    flex: 1,
+    position: "relative",
+  },
+  camera: {
+    flex: 1,
+  },
+  topControls: {
+    position: "absolute",
+    top: 40,
+    left: 20,
+    right: 20,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    zIndex: 10,
+  },
+  statusContainer: {
+    flexDirection: "column",
+    alignItems: "flex-start",
+  },
+  statusPill: {
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 20,
+  },
+  statusText: {
+    color: "white",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  flipButton: {
+    backgroundColor: "rgba(0,0,0,0.6)",
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+  },
+  flipButtonText: {
+    color: "white",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  resultOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "rgba(0,0,0,0.3)",
+  },
+  overlayImage: {
+    width: "100%",
+    height: "100%",
+  },
+  controlsPanel: {
+    backgroundColor: "#fff",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 24,
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: -2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  dragHandle: {
+    width: 48,
+    height: 6,
+    backgroundColor: "#d1d5db",
+    alignSelf: "center",
+    borderRadius: 3,
+    marginBottom: 16,
+  },
+  switchContainer: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  switchLabel: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#1f2937",
+  },
+  locationCard: {
+    backgroundColor: "#f0f9ff",
+    borderColor: "#bae6fd",
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 16,
+  },
+  locationCardTitle: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#0369a1",
+    marginBottom: 4,
+  },
+  locationCardText: {
+    fontSize: 12,
+    color: "#0c4a6e",
+    fontFamily: "monospace",
+  },
+  detectionCard: {
+    backgroundColor: "#f0fdf4",
+    borderColor: "#bbf7d0",
+    borderWidth: 1,
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 16,
+  },
+  detectionTitle: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: "#15803d",
+    marginBottom: 4,
+  },
+  detectionCount: {
+    color: "#166534",
+    marginBottom: 8,
+  },
+  detectionItem: {
+    fontSize: 14,
+    color: "#15803d",
+    marginBottom: 2,
+  },
+  locationInfo: {
+    fontSize: 12,
+    color: "#16a34a",
+    fontStyle: "italic",
+    marginTop: 4,
+  },
+  timestamp: {
+    fontSize: 11,
+    color: "#16a34a",
+    fontStyle: "italic",
+    marginTop: 8,
+  },
+  buttonContainer: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  detectButton: {
+    flex: 1,
+    minWidth: "45%",
+    borderRadius: 25,
+    paddingVertical: 12,
+    alignItems: "center",
+    marginHorizontal: 4,
+  },
+  saveButton: {
+    backgroundColor: "#16a34a",
+  },
+  clearButton: {
+    backgroundColor: "#f97316",
+    width: "100%",
+    marginTop: 12,
+  },
+  buttonText: {
+    color: "white",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+});
 
 export default CameraScreen;

@@ -155,6 +155,16 @@ class ApiService {
       return false;
     }
   }
+
+  static getImageUrl(detectionId) {
+    // Extract base URL without /api and construct image URL
+    const baseUrl = API_BASE_URL.replace("/api", "");
+    return `${baseUrl}/api/image/${detectionId}`;
+  }
+
+  static getBaseUrl() {
+    return API_BASE_URL.replace("/api", "");
+  }
 }
 
 export default ApiService;

@@ -6,6 +6,11 @@ import {
   RefreshControl,
   Alert,
   Text,
+  Modal,
+  TouchableOpacity,
+  Image,
+  Dimensions,
+  Linking,
 } from "react-native";
 import {
   Card,
@@ -14,6 +19,7 @@ import {
   ActivityIndicator,
   Button,
   Chip,
+  IconButton,
 } from "react-native-paper";
 import ApiService from "../utils/ApiService";
 
@@ -22,6 +28,10 @@ const HistoryScreen = () => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [stats, setStats] = useState(null);
+  const [modalVisible, setModalVisible] = useState(false);
+  const [selectedImageUrl, setSelectedImageUrl] = useState(null);
+
+  const { width: screenWidth, height: screenHeight } = Dimensions.get("window");
 
   useEffect(() => {
     loadDetections();
@@ -69,12 +79,63 @@ const HistoryScreen = () => {
     return colors[damageType] || "#2196f3";
   };
 
+  const openImageModal = (detectionId) => {
+    // Use ApiService to get the correct image URL
+    const imageUrl = ApiService.getImageUrl(detectionId);
+    console.log("Opening image modal with URL:", imageUrl);
+    setSelectedImageUrl(imageUrl);
+    setModalVisible(true);
+  };
+
+  const closeImageModal = () => {
+    setModalVisible(false);
+    setSelectedImageUrl(null);
+  };
+
+  const openLocationInMaps = (latitude, longitude) => {
+    const url = `https://www.google.com/maps?q=${latitude},${longitude}`;
+    Linking.openURL(url).catch((err) => {
+      console.error("Error opening maps:", err);
+      Alert.alert("Error", "Could not open maps application");
+    });
+  };
+
   const renderDetectionItem = ({ item }) => (
     <Card style={styles.card}>
       <Card.Content>
-        <Title>Detection #{item.id}</Title>
+        <View style={styles.cardHeader}>
+          <View style={styles.cardTitleContainer}>
+            <Title>Detection #{item.id}</Title>
+            <TouchableOpacity
+              style={styles.imageButton}
+              onPress={() => openImageModal(item.id)}
+            >
+              <Image
+                source={{ uri: ApiService.getImageUrl(item.id) }}
+                style={styles.thumbnailImage}
+                resizeMode="cover"
+                onError={(error) =>
+                  console.log("Thumbnail image error:", error)
+                }
+                onLoad={() =>
+                  console.log("Thumbnail loaded for detection:", item.id)
+                }
+              />
+              <View style={styles.imageOverlay}>
+                <IconButton icon="eye" iconColor="#fff" size={20} />
+              </View>
+            </TouchableOpacity>
+          </View>
+        </View>
+
         <Paragraph>
           Location: {item.latitude.toFixed(6)}, {item.longitude.toFixed(6)}
+          <TouchableOpacity
+            onPress={() => openLocationInMaps(item.latitude, item.longitude)}
+            style={styles.mapLinkButton}
+          >
+            <Text style={styles.mapLinkText}> 📍 Open in Maps</Text>
+          </TouchableOpacity>
         </Paragraph>
         <Paragraph>Time: {formatTimestamp(item.timestamp)}</Paragraph>
 
@@ -146,8 +207,8 @@ const HistoryScreen = () => {
       }
       contentContainerStyle={styles.listContainer}
       ListEmptyComponent={() => (
-        <View className="items-center justify-center py-20">
-          <Text className="text-gray-600 mb-4">No detections found</Text>
+        <View style={styles.emptyContainer}>
+          <Text style={styles.emptyText}>No detections found</Text>
           <Button mode="outlined" onPress={onRefresh}>
             Refresh
           </Button>
@@ -157,22 +218,63 @@ const HistoryScreen = () => {
   );
 
   return (
-    <View className="flex-1 bg-gray-50">
+    <View style={styles.container}>
       {loading ? (
-        <View className="flex-1 items-center justify-center">
+        <View style={styles.centerContainer}>
           <ActivityIndicator size="large" />
-          <Text className="text-gray-600 mt-3">
-            Loading detection history...
-          </Text>
+          <Text style={styles.loadingText}>Loading detection history...</Text>
         </View>
       ) : (
         content
       )}
+
+      {/* Image Modal */}
+      <Modal
+        animationType="fade"
+        transparent={true}
+        visible={modalVisible}
+        onRequestClose={closeImageModal}
+      >
+        <View style={styles.modalContainer}>
+          <TouchableOpacity
+            style={styles.modalBackground}
+            activeOpacity={1}
+            onPress={closeImageModal}
+          >
+            <View style={styles.modalContent}>
+              <TouchableOpacity
+                style={styles.closeButton}
+                onPress={closeImageModal}
+              >
+                <IconButton icon="close" iconColor="#fff" size={30} />
+              </TouchableOpacity>
+
+              {selectedImageUrl && (
+                <Image
+                  source={{ uri: selectedImageUrl }}
+                  style={[
+                    styles.modalImage,
+                    {
+                      width: screenWidth * 0.9,
+                      height: screenHeight * 0.7,
+                    },
+                  ]}
+                  resizeMode="contain"
+                />
+              )}
+            </View>
+          </TouchableOpacity>
+        </View>
+      </Modal>
     </View>
   );
 };
 
 const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: "#f9fafb",
+  },
   centerContainer: {
     flex: 1,
     justifyContent: "center",
@@ -187,6 +289,35 @@ const styles = StyleSheet.create({
     elevation: 4,
     borderRadius: 18,
     overflow: "hidden",
+  },
+  cardHeader: {
+    marginBottom: 8,
+  },
+  cardTitleContainer: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  imageButton: {
+    position: "relative",
+    borderRadius: 8,
+    overflow: "hidden",
+  },
+  thumbnailImage: {
+    width: 80,
+    height: 60,
+    borderRadius: 8,
+  },
+  imageOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "rgba(0, 0, 0, 0.3)",
+    justifyContent: "center",
+    alignItems: "center",
+    borderRadius: 8,
   },
   statsCard: {
     marginBottom: 20,
@@ -222,7 +353,50 @@ const styles = StyleSheet.create({
   emptyContainer: {
     alignItems: "center",
     justifyContent: "center",
-    padding: 40,
+    paddingVertical: 80,
+  },
+  emptyText: {
+    color: "#6b7280",
+    marginBottom: 16,
+  },
+  loadingText: {
+    color: "#6b7280",
+    marginTop: 12,
+  },
+  // Map link styles
+  mapLinkButton: {
+    marginLeft: 8,
+  },
+  mapLinkText: {
+    color: "#2196f3",
+    fontWeight: "600",
+    textDecorationLine: "underline",
+  },
+  // Modal styles
+  modalContainer: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.9)",
+  },
+  modalBackground: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  modalContent: {
+    position: "relative",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  modalImage: {
+    borderRadius: 8,
+  },
+  closeButton: {
+    position: "absolute",
+    top: -50,
+    right: 10,
+    zIndex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    borderRadius: 25,
   },
 });
 
