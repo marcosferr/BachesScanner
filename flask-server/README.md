@@ -116,10 +116,18 @@ CREATE TABLE detections (
 
 ```
 flask-server/
-├── app.py              # Main Flask application
-├── requirements.txt    # Python dependencies
-├── uploads/           # Directory for uploaded images
-└── road_damage_detection.db # SQLite database (created automatically)
+├── app.py                    # Main Flask application
+├── requirements.txt          # Python dependencies
+├── Dockerfile               # Docker image configuration
+├── docker-compose.yml       # Docker Compose configuration
+├── .dockerignore           # Docker ignore file
+├── uploads/                # Directory for uploaded images
+├── static/                 # Static files directory
+├── templates/              # HTML templates directory
+├── YOLOv8_Small_RDD.pt     # YOLO model file
+├── road_damage_detection.db # SQLite database (created automatically)
+├── server.log              # Server log file
+└── README.md               # This file
 ```
 
 ## Configuration
@@ -143,7 +151,108 @@ For production deployment, consider:
 
 ## Deployment
 
-For production deployment:
+### Docker Deployment
+
+The easiest way to deploy this Flask server is using Docker and Docker Compose.
+
+#### Prerequisites
+
+- Docker installed on your system
+- Docker Compose installed
+
+#### Quick Start with Docker
+
+1. **Using the deployment script (recommended):**
+
+```bash
+# Navigate to the flask-server directory
+cd flask-server
+
+# Make the script executable (if not already)
+chmod +x run.sh
+
+# Start the server
+./run.sh start
+```
+
+The server will be available at `http://localhost:5000`
+
+2. **Using Docker Compose directly:**
+
+```bash
+# Navigate to the flask-server directory
+cd flask-server
+
+# Build and start the container
+docker-compose up --build
+```
+
+3. **Run in background:**
+
+```bash
+# Run in detached mode
+docker-compose up -d --build
+```
+
+4. **Stop the container:**
+
+```bash
+docker-compose down
+```
+
+#### Available Commands
+
+The `run.sh` script provides convenient commands:
+
+```bash
+./run.sh start     # Build and start the server
+./run.sh stop      # Stop the server
+./run.sh restart   # Restart the server
+./run.sh logs      # Show server logs
+./run.sh status    # Show server status
+./run.sh clean     # Stop and remove containers and images
+```
+
+#### Docker Configuration
+
+The Docker setup includes:
+
+- **Dockerfile**: Multi-stage build with Python 3.11, installs system dependencies for OpenCV
+- **docker-compose.yml**: Defines the service with volume mounts for persistent data
+- **.dockerignore**: Excludes unnecessary files from the build context
+
+#### Volume Mounts
+
+The following directories are mounted to persist data between container restarts:
+
+- `./uploads`: Uploaded images
+- `./road_damage_detection.db`: SQLite database
+- `./server.log`: Server logs
+
+#### Production Deployment
+
+For production deployment with Docker:
+
+1. **Use environment variables for configuration:**
+
+```yaml
+# In docker-compose.yml, add environment section:
+environment:
+  - FLASK_ENV=production
+  - DB_NAME=road_damage_detection.db
+```
+
+2. **Scale the service:**
+
+```bash
+docker-compose up -d --scale flask-server=3
+```
+
+3. **Use Docker Swarm or Kubernetes for orchestration**
+
+### Traditional Deployment
+
+For production deployment without Docker:
 
 1. Use a production WSGI server like Gunicorn:
 

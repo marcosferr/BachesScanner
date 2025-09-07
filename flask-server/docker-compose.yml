@@ -1,0 +1,23 @@
+version: "3.8"
+
+services:
+  flask-server:
+    build: .
+    ports:
+      - "5000:5000"
+    volumes:
+      # Mount uploads directory to persist uploaded images
+      - ./uploads:/app/uploads
+      # Mount database to persist detection data
+      - ./road_damage_detection.db:/app/road_damage_detection.db
+      # Mount logs to persist server logs
+      - ./server.log:/app/server.log
+    environment:
+      - FLASK_ENV=production
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s

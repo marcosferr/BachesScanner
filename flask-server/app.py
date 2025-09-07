@@ -26,7 +26,7 @@ UPLOAD_FOLDER = "uploads"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 # YOLO Model configuration
-MODEL_PATH = "../YOLOv8_Small_RDD.pt"  # Path to the PyTorch model
+MODEL_PATH = "./YOLOv8_Small_RDD.pt"  # Path to the PyTorch model
 model = None
 
 # YOLO class names
