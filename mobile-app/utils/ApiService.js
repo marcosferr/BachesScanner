@@ -1,5 +1,5 @@
 // API configuration
-const API_BASE_URL = "http://YOUR_SERVER_IP:5000/api"; // Replace with your server IP
+const API_BASE_URL = "http://192.168.100.4:5000/api"; // Replace with your server IP
 
 class ApiService {
   static async runInference(
@@ -10,6 +10,16 @@ class ApiService {
     longitude = null
   ) {
     try {
+      // Log the image data for debugging
+      console.log(
+        "Sending image with length:",
+        imageBase64 ? imageBase64.length : "null"
+      );
+      console.log(
+        "Image starts with:",
+        imageBase64 ? imageBase64.substring(0, 50) : "null"
+      );
+
       const payload = {
         image_base64: imageBase64,
         confidence_threshold: confidenceThreshold,
@@ -22,13 +32,19 @@ class ApiService {
         payload.longitude = longitude;
       }
 
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+
       const response = await fetch(`${API_BASE_URL}/infer`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify(payload),
+        signal: controller.signal,
       });
+
+      clearTimeout(timeoutId);
 
       const result = await response.json();
 
@@ -38,6 +54,10 @@ class ApiService {
 
       return result;
     } catch (error) {
+      if (error.name === "AbortError") {
+        console.error("Request timed out");
+        throw new Error("Request timed out. Please try again.");
+      }
       console.error("Error running inference:", error);
       throw error;
     }

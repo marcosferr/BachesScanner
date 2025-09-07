@@ -12,6 +12,7 @@ import {
 import { Camera } from "expo-camera";
 import * as Location from "expo-location";
 import { Button, Card, Title, Paragraph, Switch } from "react-native-paper";
+import { useFocusEffect } from "@react-navigation/native";
 import ApiService from "../utils/ApiService";
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get("window");
@@ -27,9 +28,30 @@ const CameraScreen = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [serverConnected, setServerConnected] = useState(false);
   const [confidenceThreshold, setConfidenceThreshold] = useState(0.5);
+  const [cameraKey, setCameraKey] = useState(0); // For forcing camera re-render
+  const [cameraReady, setCameraReady] = useState(false); // Track camera readiness
 
   const cameraRef = useRef(null);
   const inferenceIntervalRef = useRef(null);
+
+  // Handle camera focus when screen comes into view
+  useFocusEffect(
+    React.useCallback(() => {
+      // Reset camera when screen is focused
+      const resetCamera = async () => {
+        if (hasCameraPermission) {
+          setCameraKey((prev) => prev + 1); // Force camera re-render
+          checkServerConnection();
+        }
+      };
+      resetCamera();
+
+      return () => {
+        // Stop real-time inference when leaving the screen
+        stopRealTimeInference();
+      };
+    }, [hasCameraPermission])
+  );
 
   useEffect(() => {
     requestPermissions();
@@ -79,40 +101,99 @@ const CameraScreen = () => {
       const location = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.High,
       });
-      setLocation({
+      const newLocation = {
         latitude: location.coords.latitude,
         longitude: location.coords.longitude,
-      });
+      };
+      setLocation(newLocation);
+      return newLocation;
     } catch (error) {
       console.error("Error getting location:", error);
+      return location; // Return current state if new location fetch fails
     }
   };
 
   const captureAndInfer = async (saveResult = false) => {
-    if (!cameraRef.current || isProcessing) return;
+    if (!cameraRef.current || isProcessing || !hasCameraPermission) return;
+    if (!cameraReady) {
+      console.log("captureAndInfer: Camera not ready yet");
+      return;
+    }
 
     try {
       setIsProcessing(true);
+      console.log("captureAndInfer: Starting capture. saveResult=", saveResult);
+
+      // Small delay to ensure stability after UI interactions
+      await new Promise((resolve) => setTimeout(resolve, 60));
+
+      // Robust capture with timeout & retries
+      const takePhotoWithRetry = async (retries = 2) => {
+        for (let attempt = 0; attempt <= retries; attempt++) {
+          try {
+            console.log(
+              `captureAndInfer: Attempt ${attempt + 1} to take picture`
+            );
+            const photo = await Promise.race([
+              cameraRef.current.takePictureAsync({
+                quality: 0.6, // slightly lower for speed
+                base64: true,
+                skipProcessing: true, // faster & avoids some Android stalls
+                fastMode: true,
+              }),
+              new Promise((_, reject) =>
+                setTimeout(() => reject(new Error("capture-timeout")), 7000)
+              ),
+            ]);
+            return photo;
+          } catch (err) {
+            console.warn(
+              "captureAndInfer: takePictureAsync failed",
+              err.message
+            );
+            if (attempt === retries) throw err;
+            await new Promise((r) => setTimeout(r, 200));
+          }
+        }
+      };
 
       // Take picture
-      const photo = await cameraRef.current.takePictureAsync({
-        quality: 0.7,
-        base64: true,
-      });
+      const photo = await takePhotoWithRetry();
+
+      // Validate that we have a base64 image
+      if (!photo.base64) {
+        throw new Error("Failed to capture image as base64");
+      }
+
+      console.log("Captured photo - base64 length:", photo.base64.length);
 
       // Get current location if saving
       let currentLocation = location;
       if (saveResult && hasLocationPermission) {
-        currentLocation = await getCurrentLocation();
+        try {
+          currentLocation = await getCurrentLocation();
+        } catch (error) {
+          console.warn(
+            "Could not get current location, using last known location"
+          );
+          currentLocation = location;
+        }
       }
+
+      // Prepare the base64 image with proper format
+      const imageBase64 = `data:image/jpeg;base64,${photo.base64}`;
 
       // Run inference on server
       const result = await ApiService.runInference(
-        photo.base64,
+        imageBase64,
         confidenceThreshold,
         saveResult,
         currentLocation?.latitude,
         currentLocation?.longitude
+      );
+      console.log(
+        "captureAndInfer: Inference success. Detections:",
+        result?.detection_count
       );
 
       setLastInferenceResult({
@@ -130,8 +211,9 @@ const CameraScreen = () => {
       }
     } catch (error) {
       console.error("Error during capture and inference:", error);
-      Alert.alert("Error", "Failed to process image");
+      Alert.alert("Error", `Failed to process image: ${error.message}`);
     } finally {
+      console.log("captureAndInfer: Finished");
       setIsProcessing(false);
     }
   };
@@ -203,7 +285,21 @@ const CameraScreen = () => {
     <View style={styles.container}>
       {/* Camera View */}
       <View style={styles.cameraContainer}>
-        <Camera style={styles.camera} type={type} ref={cameraRef}>
+        <Camera
+          key={cameraKey}
+          style={styles.camera}
+          type={type}
+          ref={cameraRef}
+          autoFocus={Camera.Constants.AutoFocus.on}
+          onCameraReady={() => {
+            console.log("Camera ready");
+            setCameraReady(true);
+          }}
+          onMountError={(e) => {
+            console.error("Camera mount error", e);
+            Alert.alert("Camera Error", "Failed to initialize camera");
+          }}
+        >
           {/* Camera Controls */}
           <View style={styles.topControls}>
             <TouchableOpacity
@@ -286,7 +382,7 @@ const CameraScreen = () => {
               isProcessing && styles.disabledButton,
             ]}
             onPress={() => captureAndInfer(false)}
-            disabled={isProcessing || !serverConnected}
+            disabled={isProcessing || !serverConnected || isRealTimeMode}
           >
             {isProcessing ? (
               <ActivityIndicator size="small" color="#fff" />

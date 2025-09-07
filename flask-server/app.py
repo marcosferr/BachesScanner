@@ -8,8 +8,11 @@ from datetime import datetime
 import json
 import cv2
 import numpy as np
+import torch
+import torch.serialization
 from ultralytics import YOLO
 import io
+import traceback
 from PIL import Image
 
 app = Flask(__name__)
@@ -34,16 +37,63 @@ def load_yolo_model():
     """Load the YOLO model for inference"""
     global model
     try:
+        print(f"Attempting to load YOLO model from {MODEL_PATH}...")
+        print(f"Current working directory: {os.getcwd()}")
+        print(f"Model file exists: {os.path.exists(MODEL_PATH)}")
+
+        # Add safe globals for PyTorch 2.6 compatibility
+        try:
+            from ultralytics.nn.tasks import DetectionModel
+
+            torch.serialization.add_safe_globals([DetectionModel])
+            print("Added DetectionModel to PyTorch safe globals")
+        except Exception as e:
+            print(f"Could not add safe globals: {e}")
+
         if os.path.exists(MODEL_PATH):
             print(f"Loading YOLO model from {MODEL_PATH}...")
-            model = YOLO(MODEL_PATH)
-            print("YOLO model loaded successfully!")
+
+            # Try loading with different approaches for PyTorch 2.6 compatibility
+            try:
+                model = YOLO(MODEL_PATH)
+                print("YOLO model loaded successfully!")
+            except Exception as e:
+                print(f"First attempt failed: {e}")
+                print("Trying with weights_only=False workaround...")
+
+                # Temporarily modify torch.load behavior
+                original_load = torch.load
+
+                def safe_load(*args, **kwargs):
+                    kwargs["weights_only"] = False
+                    return original_load(*args, **kwargs)
+
+                torch.load = safe_load
+                try:
+                    model = YOLO(MODEL_PATH)
+                    print("YOLO model loaded successfully with weights_only=False!")
+                finally:
+                    # Restore original torch.load
+                    torch.load = original_load
+
+            print(f"Model type: {type(model)}")
             return True
         else:
             print(f"Model file not found at {MODEL_PATH}")
+            # Try absolute path
+            abs_path = os.path.abspath(MODEL_PATH)
+            print(f"Trying absolute path: {abs_path}")
+            if os.path.exists(abs_path):
+                print(f"Loading YOLO model from absolute path: {abs_path}")
+                model = YOLO(abs_path)
+                print("YOLO model loaded successfully with absolute path!")
+                return True
             return False
     except Exception as e:
         print(f"Error loading YOLO model: {e}")
+        import traceback
+
+        traceback.print_exc()
         return False
 
 
@@ -99,42 +149,110 @@ def save_base64_image(base64_string, image_id):
 def base64_to_image(base64_string):
     """Convert base64 string to OpenCV image"""
     try:
+        print(
+            f"Received base64 string length: {len(base64_string) if base64_string else 'None'}"
+        )
+
+        if not base64_string:
+            print("Error: Empty base64 string received")
+            return None
+
         # Remove data URL prefix if present
         if "," in base64_string:
             base64_string = base64_string.split(",")[1]
+            print(f"After removing prefix, length: {len(base64_string)}")
+
+        # Validate base64 string
+        if len(base64_string) < 100:  # Too short to be a real image
+            print(f"Error: Base64 string too short: {len(base64_string)}")
+            return None
 
         # Decode base64 string
         image_data = base64.b64decode(base64_string)
+        print(f"Decoded image data length: {len(image_data)}")
+
+        if len(image_data) < 1000:  # Too small to be a real image
+            print(f"Error: Decoded image data too small: {len(image_data)}")
+            return None
 
         # Convert to PIL Image
         pil_image = Image.open(io.BytesIO(image_data))
+        print(f"PIL image size: {pil_image.size}, mode: {pil_image.mode}")
+
+        # Ensure RGB mode
+        if pil_image.mode != "RGB":
+            pil_image = pil_image.convert("RGB")
+            print(f"Converted to RGB mode")
 
         # Convert PIL to OpenCV format
-        opencv_image = cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
+        image_array = np.array(pil_image)
+        if image_array.size == 0:
+            print("Error: Empty image array after PIL conversion")
+            return None
+
+        opencv_image = cv2.cvtColor(image_array, cv2.COLOR_RGB2BGR)
+        print(f"OpenCV image shape: {opencv_image.shape}")
 
         return opencv_image
     except Exception as e:
         print(f"Error converting base64 to image: {e}")
+        import traceback
+
+        traceback.print_exc()
         return None
 
 
 def image_to_base64(image):
     """Convert OpenCV image to base64 string"""
     try:
+        print(
+            f"image_to_base64: Received image with shape: {image.shape if image is not None else 'None'}"
+        )
+        print(f"image_to_base64: Image type: {type(image)}")
+
+        if image is None:
+            print("Error: Received None image")
+            return None
+
+        if image.size == 0:
+            print("Error: Received empty image")
+            return None
+
+        # Resize large images to reduce response size
+        h, w = image.shape[:2]
+        max_size = 800  # Maximum dimension
+        if max(h, w) > max_size:
+            if h > w:
+                new_h = max_size
+                new_w = int(w * max_size / h)
+            else:
+                new_w = max_size
+                new_h = int(h * max_size / w)
+            image = cv2.resize(image, (new_w, new_h), interpolation=cv2.INTER_AREA)
+            print(f"image_to_base64: Resized image to: {image.shape}")
+
         # Convert BGR to RGB
         rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        print(f"image_to_base64: Converted to RGB, shape: {rgb_image.shape}")
 
         # Convert to PIL Image
         pil_image = Image.fromarray(rgb_image)
+        print(f"image_to_base64: PIL image created with size: {pil_image.size}")
 
-        # Convert to base64
+        # Convert to base64 with lower quality to reduce size
         buffer = io.BytesIO()
-        pil_image.save(buffer, format="JPEG", quality=85)
+        pil_image.save(buffer, format="JPEG", quality=60, optimize=True)
         image_base64 = base64.b64encode(buffer.getvalue()).decode("utf-8")
+        print(
+            f"image_to_base64: Base64 conversion successful, length: {len(image_base64)}"
+        )
 
         return f"data:image/jpeg;base64,{image_base64}"
     except Exception as e:
         print(f"Error converting image to base64: {e}")
+        import traceback
+
+        traceback.print_exc()
         return None
 
 
@@ -143,23 +261,32 @@ def run_yolo_inference(image, confidence_threshold=0.5):
     global model
 
     if model is None:
-        return None, []
+        print("YOLO model is not loaded")
+        return image, []
 
     try:
+        print(f"run_yolo_inference: Input image shape: {image.shape}")
+
         # Resize image for inference
         h_ori, w_ori = image.shape[:2]
         image_resized = cv2.resize(image, (640, 640), interpolation=cv2.INTER_AREA)
+        print(f"run_yolo_inference: Resized image shape: {image_resized.shape}")
 
         # Run inference
         results = model.predict(image_resized, conf=confidence_threshold, verbose=False)
+        print(f"run_yolo_inference: YOLO prediction completed")
 
         # Process results
         detections = []
         annotated_image = image.copy()
+        print(
+            f"run_yolo_inference: Created annotated_image copy with shape: {annotated_image.shape}"
+        )
 
         for result in results:
             boxes = result.boxes
             if boxes is not None:
+                print(f"run_yolo_inference: Found {len(boxes)} detections")
                 for box in boxes:
                     # Get box coordinates and scale back to original image size
                     x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
@@ -213,11 +340,20 @@ def run_yolo_inference(image, confidence_threshold=0.5):
                         (255, 255, 255),
                         2,
                     )
+            else:
+                print("run_yolo_inference: No boxes found in this result")
 
+        print(
+            f"run_yolo_inference: Final annotated_image shape: {annotated_image.shape}"
+        )
+        print(f"run_yolo_inference: Total detections: {len(detections)}")
         return annotated_image, detections
 
     except Exception as e:
         print(f"Error during YOLO inference: {e}")
+        import traceback
+
+        traceback.print_exc()
         return image, []
 
 
@@ -387,6 +523,9 @@ def infer_damage():
 
         # Run YOLO inference
         annotated_image, detections = run_yolo_inference(image, confidence_threshold)
+        print(
+            f"infer_damage: Received annotated_image with shape: {annotated_image.shape if annotated_image is not None else 'None'}"
+        )
 
         # Convert annotated image back to base64
         annotated_image_base64 = image_to_base64(annotated_image)

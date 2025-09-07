@@ -13,7 +13,7 @@ import {
 import ApiService from "../utils/ApiService";
 
 const SettingsScreen = () => {
-  const [serverUrl, setServerUrl] = useState("http://192.168.1.100:5000");
+  const [serverUrl, setServerUrl] = useState("http://192.168.100.4:5000");
   const [confidenceThreshold, setConfidenceThreshold] = useState("0.5");
   const [autoUpload, setAutoUpload] = useState(true);
   const [saveToGallery, setSaveToGallery] = useState(true);
@@ -71,7 +71,7 @@ const SettingsScreen = () => {
           text: "Reset",
           style: "destructive",
           onPress: () => {
-            setServerUrl("http://192.168.1.100:5000");
+            setServerUrl("http://192.168.100.4:5000");
             setConfidenceThreshold("0.5");
             setAutoUpload(true);
             setSaveToGallery(true);
@@ -107,7 +107,7 @@ const SettingsScreen = () => {
             onChangeText={setServerUrl}
             mode="outlined"
             style={styles.input}
-            placeholder="http://192.168.1.100:5000"
+            placeholder="http://192.168.100.4:5000"
           />
 
           <View style={styles.statusContainer}>
